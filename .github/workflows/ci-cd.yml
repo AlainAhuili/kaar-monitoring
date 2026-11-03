@@ -112,9 +112,10 @@ jobs:
   deploy:
     name: Deploy to Hetzner
     needs: [test, build]
-    # runs after a successful build on main, or alone for a rollback via workflow_dispatch
+    # runs after a successful build on main, or alone for a rollback via workflow_dispatch.
+    # Skipped (not failed) until the repo variable DOMAIN is set, i.e. until a server exists.
     if: >-
-      always() && needs.test.result == 'success' &&
+      always() && needs.test.result == 'success' && vars.DOMAIN != '' &&
       github.ref == 'refs/heads/main' &&
       (needs.build.result == 'success' ||
        (github.event_name == 'workflow_dispatch' && inputs.image_tag != ''))
