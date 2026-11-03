@@ -1,4 +1,4 @@
-# Production override (Hetzner VPS). Used by deploy/deploy.sh:
+# Production override (Oracle Cloud or any Docker host). Used by deploy/deploy.sh:
 #   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml --profile demo up -d
 # Needs Docker Compose >= 2.24 (for !reset / !override).
 services:

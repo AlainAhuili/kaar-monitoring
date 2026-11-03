@@ -1,0 +1,73 @@
+#cloud-config
+# Oracle Cloud "Always Free" server (VM.Standard.A1.Flex, Ubuntu 24.04, Arm).
+# Paste into: Create instance -> "Show advanced options" -> Management -> "Paste cloud-init script".
+# Replace the two SSH public keys first.
+#
+# Oracle has TWO firewalls: the VCN Security List (opened in the Console, see README)
+# and iptables rules baked into Oracle's Ubuntu image (opened below). Oracle's image
+# uses iptables-persistent, so ufw is deliberately NOT used here.
+
+groups:
+  - docker
+
+users:
+  - default            # keeps Oracle's 'ubuntu' user (key from the Console dialog)
+  - name: deploy
+    groups: [docker]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAA...your-laptop-key you@laptop
+      - ssh-ed25519 AAAA...github-actions-deploy-key github-actions
+
+package_update: true
+package_upgrade: true
+packages:
+  - ca-certificates
+  - curl
+  - rsync
+  - fail2ban
+  - unattended-upgrades
+  - iptables-persistent
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/10-hardening.conf
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin no
+      KbdInteractiveAuthentication no
+  - path: /etc/docker/daemon.json
+    content: |
+      { "log-driver": "json-file", "log-opts": { "max-size": "20m", "max-file": "5" } }
+  - path: /usr/local/sbin/kaar-open-ports.sh
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      # Allow HTTP, HTTPS and MQTT-TLS before Oracle's default REJECT rule, then persist.
+      set -e
+      for port in 80 443 8883; do
+        iptables -C INPUT -p tcp --dport "$port" -m state --state NEW -j ACCEPT 2>/dev/null ||
+          iptables -I INPUT 5 -p tcp --dport "$port" -m state --state NEW -j ACCEPT
+      done
+      # Oracle's image also rejects all forwarded traffic, which can break Docker's
+      # published ports after a reboot; Docker manages FORWARD itself.
+      iptables -D FORWARD -j REJECT --reject-with icmp-host-prohibited 2>/dev/null || true
+      netfilter-persistent save
+
+runcmd:
+  # Docker from Docker's own repository (Ubuntu's compose package is too old for !reset/!override)
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+  - sh -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list'
+  - apt-get update
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  - usermod -aG docker deploy
+  - systemctl enable --now docker fail2ban
+  - /usr/local/sbin/kaar-open-ports.sh
+  - systemctl restart ssh
+  # 2 GB swap: cheap insurance for Postgres + Grafana spikes
+  - sh -c 'test -f /swapfile || (fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo "/swapfile none swap sw 0 0" >> /etc/fstab)'
+  - mkdir -p /opt/kaar && chown deploy:deploy /opt/kaar
+  - sh -c '(crontab -u deploy -l 2>/dev/null; echo "17 4 * * 1 cd /opt/kaar && ./deploy/sync-mqtt-certs.sh >> /opt/kaar/certs.log 2>&1") | crontab -u deploy -'
+  - touch /var/lib/cloud/kaar-ready
