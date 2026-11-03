@@ -78,7 +78,7 @@ class Notifier:
             return
         url = f"https://api.telegram.org/bot{self.cfg.telegram_bot_token}/sendMessage"
         data = urllib.parse.urlencode({"chat_id": chat_id, "text": f"{subject}\n\n{body}"}).encode()
-        urllib.request.urlopen(url, data=data, timeout=15).read()
+        urllib.request.urlopen(url, data=data, timeout=15).read()  # noqa: S310 – fixed https URL
 
     def _send_webhook(self, url, _subject, _body, payload) -> None:
         if not url.startswith("https://"):

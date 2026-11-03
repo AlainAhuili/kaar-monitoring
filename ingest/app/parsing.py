@@ -39,7 +39,7 @@ def _parse_ts(raw, now: datetime) -> datetime:
         return now
     if isinstance(raw, bool):
         raise InvalidMessage("bad ts")
-    if isinstance(raw, (int, float)):
+    if isinstance(raw, int | float):
         if raw > 1e12:  # milliseconds
             raw = raw / 1000
         ts = datetime.fromtimestamp(raw, tz=UTC)
@@ -74,7 +74,7 @@ def parse_payload(payload: bytes, now: datetime) -> tuple[datetime, dict[str, fl
             raise InvalidMessage(f"bad metric name {k!r}")
         if isinstance(v, bool):
             v = 1.0 if v else 0.0  # e.g. leak: true
-        if not isinstance(v, (int, float)) or not math.isfinite(v):
+        if not isinstance(v, int | float) or not math.isfinite(v):
             raise InvalidMessage(f"metric {k} is not a finite number")
         metrics[k] = float(v)
     return _parse_ts(data.get("ts"), now), metrics
