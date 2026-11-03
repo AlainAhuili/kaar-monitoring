@@ -1,7 +1,7 @@
 # Kaar Monitoring – sensor monitoring as a service
 
 [![CI/CD](https://github.com/AlainAhuili/kaar-monitoring/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/AlainAhuili/kaar-monitoring/actions/workflows/ci-cd.yml)
-**Live demo:** https://demo.example.com (read-only dashboard, simulated bakery freezer with an incident every 6 h)
+**Live demo:** https://demo.kaarsmarttechs.com (read-only dashboard, simulated bakery freezer with an incident every 6 h)
 
 Starter platform for Kaar Smart Techs: business sensors (cold storage, server rooms,
 leaks, energy) → MQTT → TimescaleDB → alerts + Grafana dashboards, one system for many clients.
@@ -96,12 +96,12 @@ flowchart LR
 
 One-time setup, about 30 minutes:
 
-1. **DNS:** two A records, e.g. `demo.yourdomain.de` and `mqtt.yourdomain.de` → server IP.
+1. **DNS:** two A records, e.g. `demo.kaarsmarttechs.com` and `mqtt.kaarsmarttechs.com` → server IP.
 2. **Server:** Hetzner Cloud → Ubuntu 24.04, CX22, location Falkenstein/Nürnberg. Paste `deploy/cloud-init.yml` (with your SSH keys) as *Cloud config*. Optionally add a Hetzner Cloud Firewall with 22/80/443/8883.
 3. **Deploy key:** `ssh-keygen -t ed25519 -f gh-deploy -N ""`. The public key goes into cloud-init; then run `ssh-keyscan <server-ip>` for known_hosts.
 4. **GitHub repo settings:**
    - Secrets: `DEPLOY_HOST` (IP), `DEPLOY_USER` (`deploy`), `DEPLOY_SSH_KEY` (contents of `gh-deploy`), `DEPLOY_KNOWN_HOSTS` (ssh-keyscan output)
-   - Variables: `DOMAIN` (e.g. `demo.yourdomain.de`)
+   - Variables: `DOMAIN` (`demo.kaarsmarttechs.com`)
    - Environment `production` (optional: required reviewers)
 5. **On the server, once** (`ssh deploy@<ip>`):
    ```bash
@@ -116,7 +116,7 @@ One-time setup, about 30 minutes:
    and re-run the workflow.
 6. **GHCR image visibility:** after the first build, make the package public (GitHub → Packages → package settings), or run `docker login ghcr.io` on the server with a read-only PAT.
 
-A real gateway or ESP32 then connects to `mqtts://mqtt.yourdomain.de:8883` with its tenant credentials.
+A real gateway or ESP32 then connects to `mqtts://mqtt.kaarsmarttechs.com:8883` with its tenant credentials.
 
 **Schema changes:** `db/init` only runs when the database is first created. For changes after go-live, add a migration tool (e.g. dbmate) and a migration step in `deploy.sh`.
 
