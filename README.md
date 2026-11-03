@@ -1,6 +1,6 @@
 # Kaar Monitoring – sensor monitoring as a service
 
-[![CI/CD](https://github.com/OWNER/kaar-monitoring/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/OWNER/kaar-monitoring/actions/workflows/ci-cd.yml)
+[![CI/CD](https://github.com/AlainAhuili/kaar-monitoring/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/AlainAhuili/kaar-monitoring/actions/workflows/ci-cd.yml)
 **Live demo:** https://demo.example.com (read-only dashboard, simulated bakery freezer with an incident every 6 h)
 
 Starter platform for Kaar Smart Techs: business sensors (cold storage, server rooms,

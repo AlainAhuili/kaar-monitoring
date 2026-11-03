@@ -8,5 +8,5 @@ COPY ingest/app ./app
 COPY tools/simulate.py ./tools/simulate.py
 RUN useradd -r -u 10001 kaar
 USER kaar
-LABEL org.opencontainers.image.source="https://github.com/OWNER/kaar-monitoring"
+LABEL org.opencontainers.image.source="https://github.com/AlainAhuili/kaar-monitoring"
 CMD ["python", "-m", "app.main"]
