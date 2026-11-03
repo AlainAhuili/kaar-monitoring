@@ -1,0 +1,54 @@
+# Production override (Hetzner VPS). Used by deploy/deploy.sh:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml --profile demo up -d
+# Needs Docker Compose >= 2.24 (for !reset / !override).
+services:
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      MQTT_DOMAIN: ${MQTT_DOMAIN:?set MQTT_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [grafana]
+
+  mosquitto:
+    ports: !override
+      - "8883:8883"        # MQTT over TLS for real gateways; 1883 stays internal to the Docker network
+    volumes:
+      - ./deploy/mosquitto.prod.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/certs:/mosquitto/certs:ro
+
+  db:
+    ports: !reset []       # never expose Postgres; use an SSH tunnel: ssh -L 5432:localhost:5432 ... + docker compose exec db psql
+
+  ingest:
+    build: !reset null
+    pull_policy: always
+
+  simulator:
+    build: !reset null
+    pull_policy: always
+
+  grafana:
+    ports: !reset []       # only reachable through Caddy
+    environment:
+      GF_SERVER_ROOT_URL: https://${DOMAIN}/
+      GF_AUTH_ANONYMOUS_ENABLED: "true"        # public read-only demo for recruiters
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_ANONYMOUS_ORG_NAME: Main Org.
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_EXPLORE_ENABLED: "false"
+      GF_LOG_LEVEL: warn
+
+volumes:
+  caddy-data:
+  caddy-config:

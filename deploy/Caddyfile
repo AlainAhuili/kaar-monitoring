@@ -1,0 +1,21 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# Public dashboard
+{$DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	reverse_proxy grafana:3000
+}
+
+# Exists so Caddy obtains/renews a Let's Encrypt certificate for the MQTT host.
+# deploy/sync-mqtt-certs.sh copies it to Mosquitto (port 8883).
+{$MQTT_DOMAIN} {
+	respond "Kaar MQTT endpoint: connect with MQTT over TLS on port 8883." 200
+}

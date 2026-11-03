@@ -1,0 +1,157 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Redeploy an existing image tag (git SHA) – rollback. Leave empty to build HEAD."
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Lint & test
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: timescale/timescaledb:2.17.2-pg16
+        env:
+          POSTGRES_DB: kaar
+          POSTGRES_USER: kaar
+          POSTGRES_PASSWORD: ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U kaar -d kaar"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      PGHOST: localhost
+      PGUSER: kaar
+      PGPASSWORD: ci
+      PGDATABASE: kaar
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ingest/requirements*.txt
+
+      - name: Install
+        run: pip install -r ingest/requirements.txt -r ingest/requirements-dev.txt
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Load schema into real TimescaleDB
+        run: |
+          for f in db/init/*.sql; do
+            echo "::group::$f"; psql -v ON_ERROR_STOP=1 -f "$f"; echo "::endgroup::"
+          done
+          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE grafana_baeckerei_demo PASSWORD 'ci-demo'"
+
+      - name: Unit + integration tests
+        working-directory: ingest
+        env:
+          DATABASE_URL: postgresql://kaar:ci@localhost:5432/kaar
+          TENANT_DATABASE_URL: postgresql://grafana_baeckerei_demo:ci-demo@localhost:5432/kaar
+        run: pytest -q -rs --junitxml=junit.xml
+
+      - name: Validate compose files
+        run: |
+          cp .env.example .env
+          docker compose config -q
+          docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml --profile demo config -q
+
+      - name: Shellcheck deploy scripts
+        run: shellcheck deploy/*.sh tools/*.sh db/init/*.sh
+
+  build:
+    name: Build & push image
+    needs: test
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.image_tag == '')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: meta
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}-ingest" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ingest/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ github.sha }}
+            ${{ steps.meta.outputs.image }}:latest
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Hetzner
+    needs: [test, build]
+    # runs after a successful build on main, or alone for a rollback via workflow_dispatch
+    if: >-
+      always() && needs.test.result == 'success' &&
+      github.ref == 'refs/heads/main' &&
+      (needs.build.result == 'success' ||
+       (github.event_name == 'workflow_dispatch' && inputs.image_tag != ''))
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://${{ vars.DOMAIN }}
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+      IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Sync deployment files
+        # server-only files (.env, mosquitto/passwd, mosquitto/certs) are excluded and therefore never deleted
+        run: |
+          rsync -az --delete \
+            --exclude '.env' --exclude 'mosquitto/passwd' --exclude 'mosquitto/certs/' --exclude '*.log' \
+            docker-compose.yml deploy db grafana mosquitto tools "$TARGET:/opt/kaar/"
+
+      - name: Deploy
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}-ingest"
+          ssh "$TARGET" "cd /opt/kaar && IMAGE_TAG='$IMAGE_TAG' INGEST_IMAGE='$image' ./deploy/deploy.sh"
+
+      - name: Smoke test
+        run: |
+          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "https://${{ vars.DOMAIN }}/api/health"
+          echo
+          curl -fsS "https://${{ vars.DOMAIN }}/api/dashboards/uid/kaar-overview" > /dev/null && echo "dashboard reachable"

@@ -1,0 +1,8 @@
+.env
+mosquitto/passwd
+mosquitto/certs/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+junit.xml
+*.log

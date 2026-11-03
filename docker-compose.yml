@@ -1,0 +1,85 @@
+# Base stack (dev). Production adds deploy/docker-compose.prod.yml on top:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "1883:1883"        # dev only – production publishes 8883 (TLS) instead
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
+      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      - mosquitto-data:/mosquitto/data
+
+  db:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kaar
+      POSTGRES_USER: kaar
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      GRAFANA_DEMO_DB_PASSWORD: ${GRAFANA_DEMO_DB_PASSWORD:?set GRAFANA_DEMO_DB_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kaar -d kaar"]
+      interval: 5s
+      retries: 20
+
+  ingest:
+    build:
+      context: .
+      dockerfile: ingest/Dockerfile
+    image: ${INGEST_IMAGE:-kaar-ingest}:${IMAGE_TAG:-dev}
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+      mosquitto: { condition: service_started }
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_USER: ingest
+      MQTT_PASSWORD: ${MQTT_INGEST_PASSWORD:?set MQTT_INGEST_PASSWORD in .env}
+      DATABASE_URL: postgresql://kaar:${DB_PASSWORD}@db:5432/kaar
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-alerts@example.com}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+
+  # Always-on demo data for the public dashboard. Start with: --profile demo
+  simulator:
+    image: ${INGEST_IMAGE:-kaar-ingest}:${IMAGE_TAG:-dev}
+    profiles: [demo]
+    restart: unless-stopped
+    depends_on: [mosquitto, ingest]
+    command: ["python", "tools/simulate.py"]
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_USER: baeckerei-demo
+      MQTT_PASSWORD: ${MQTT_DEMO_GATEWAY_PASSWORD:-}
+
+  grafana:
+    image: grafana/grafana-oss:11.3.0
+    restart: unless-stopped
+    depends_on: [db]
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/overview.json
+      GRAFANA_DEMO_DB_PASSWORD: ${GRAFANA_DEMO_DB_PASSWORD}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  mosquitto-data:
+  db-data:
+  grafana-data:

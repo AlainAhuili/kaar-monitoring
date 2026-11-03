@@ -1,0 +1,21 @@
+apiVersion: 1
+# The dashboards use the demo client's READ-ONLY role, which can only SELECT the
+# tenant_* views of its own tenant. This matters because Grafana viewers (including
+# anonymous visitors of the public demo) can send arbitrary queries to a datasource.
+# Never give a viewer-facing datasource the owner role.
+# For admin work use psql over an SSH tunnel instead.
+datasources:
+  - name: Demo client (read-only)
+    uid: kaar-demo
+    type: grafana-postgresql-datasource
+    url: db:5432
+    user: grafana_baeckerei_demo
+    isDefault: true
+    jsonData:
+      database: kaar
+      sslmode: disable
+      timescaledb: true
+      postgresVersion: 1600
+      maxOpenConns: 5
+    secureJsonData:
+      password: $GRAFANA_DEMO_DB_PASSWORD

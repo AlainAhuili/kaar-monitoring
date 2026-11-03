@@ -1,0 +1,96 @@
+{
+  "uid": "kaar-overview",
+  "title": "Kaar – Sensor Overview",
+  "description": "Live demo: Bäckerei Demo GmbH. Simulated freezer + cold room; a freezer door incident is replayed every 6 hours.",
+  "schemaVersion": 39,
+  "time": { "from": "now-12h", "to": "now" },
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      {
+        "name": "device",
+        "label": "Device",
+        "type": "query",
+        "datasource": { "type": "grafana-postgresql-datasource", "uid": "kaar-demo" },
+        "query": "SELECT name AS __text, id AS __value FROM tenant_devices ORDER BY name",
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" },
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Temperature",
+      "gridPos": { "x": 0, "y": 0, "w": 16, "h": 10 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "kaar-demo" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": { "thresholdsStyle": { "mode": "line" } },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "transparent", "value": null },
+            { "color": "red", "value": -15 }
+          ] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time_bucket('$__interval', time) AS time, device AS metric, avg(value) AS value\nFROM tenant_readings\nWHERE $__timeFilter(time) AND metric = 'temperature' AND device_id IN ($device)\nGROUP BY 1, 2 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Open alerts",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 10 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "kaar-demo" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT started_at AS \"since\", severity, device, kind, peak_value AS peak\nFROM tenant_alert_events WHERE resolved_at IS NULL ORDER BY started_at DESC"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Incidents (last 7 days)",
+      "gridPos": { "x": 0, "y": 10, "w": 14, "h": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "kaar-demo" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT started_at, resolved_at, round(extract(epoch FROM resolved_at - started_at) / 60) AS minutes,\n  device, kind, severity, peak_value AS peak\nFROM tenant_alert_events WHERE started_at > now() - interval '7 days'\nORDER BY started_at DESC LIMIT 50"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Devices",
+      "gridPos": { "x": 14, "y": 10, "w": 10, "h": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "kaar-demo" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT d.site, d.name AS device, d.last_seen,\n  (SELECT value FROM tenant_readings r WHERE r.device_id = d.id AND r.metric = 'battery'\n   AND r.time > now() - interval '1 day' ORDER BY r.time DESC LIMIT 1) AS battery\nFROM tenant_devices d ORDER BY d.site, d.name"
+        }
+      ]
+    }
+  ]
+}

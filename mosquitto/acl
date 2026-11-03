@@ -1,0 +1,7 @@
+# The ingest service reads all telemetry.
+user ingest
+topic read kaar/+/+/telemetry
+
+# Gateways: one MQTT user per tenant, username == tenant slug.
+# A gateway can only publish under its own tenant prefix.
+pattern write kaar/%u/+/telemetry
