@@ -39,7 +39,8 @@ set -a
 set +a
 
 mkdir -p mosquitto
-touch mosquitto/passwd
+# On a re-run the file belongs to the mosquitto user (1883), so only create it if missing
+[ -f mosquitto/passwd ] || touch mosquitto/passwd
 docker run --rm -v "$dir/mosquitto:/m" eclipse-mosquitto:2 sh -c \
   "mosquitto_passwd -b /m/passwd ingest '$MQTT_INGEST_PASSWORD' &&
    mosquitto_passwd -b /m/passwd baeckerei-demo '$MQTT_DEMO_GATEWAY_PASSWORD' &&
