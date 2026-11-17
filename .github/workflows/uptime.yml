@@ -1,0 +1,33 @@
+name: Uptime
+
+# External check of the public demo from GitHub's network. A failed run sends
+# the usual GitHub Actions failure notification (email by default).
+on:
+  schedule:
+    - cron: "17,47 * * * *"   # every 30 min; off the full hour, when GitHub queues are busiest
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/uptime.yml"
+      - "tools/uptime_check.sh"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Demo reachable
+    # Skipped (not failed) until the repo variable DOMAIN is set, like the deploy job.
+    if: vars.DOMAIN != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check dashboard, MQTT TLS and certificates
+        env:
+          DEMO_HOST: ${{ vars.DOMAIN }}
+        run: tools/uptime_check.sh
